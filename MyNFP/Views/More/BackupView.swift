@@ -7,15 +7,12 @@ struct BackupView: View {
     @Environment(AppModel.self) private var model
     @Environment(BackupService.self) private var backup
 
-    /// Nur ein fileImporter pro Ansicht: SwiftUI beachtet bei mehreren nur einen.
-    enum PickerPurpose { case folder, importFile }
-    @State private var showPicker = false
-    @State private var pickerPurpose: PickerPurpose = .folder
     @State private var passwordSheet = false
     @State private var exportPassword = ""
     @State private var exportURL: URL?
     @State private var exportError: String?
     @State private var busy = false
+    @State private var openingPicker = false
     @State private var message: String?
 
     // Import / Wiederherstellung
@@ -31,6 +28,12 @@ struct BackupView: View {
 
     var body: some View {
         Form {
+            if openingPicker {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Dateiauswahl wird geöffnet …")
+                }
+            }
             statusSection
             autoBackupSection
             snapshotSection
@@ -43,21 +46,6 @@ struct BackupView: View {
             }
         }
         .navigationTitle("Datensicherung")
-        .fileImporter(isPresented: $showPicker,
-                      allowedContentTypes: pickerPurpose == .folder ? [.folder] : Self.importTypes) { result in
-            switch pickerPurpose {
-            case .folder:
-                switch result {
-                case .success(let url):
-                    backup.setFolder(url)
-                    if backup.encryptBackups && !backup.hasPassword { passwordSheet = true }
-                case .failure(let e):
-                    message = "Ordner konnte nicht ausgewählt werden: \(e.localizedDescription)"
-                }
-            case .importFile:
-                handleImportPick(result)
-            }
-        }
         .sheet(isPresented: $passwordSheet) { BackupPasswordView() }
         .sheet(item: Binding(get: { decoded.map(IdentifiedPayload.init) }, set: { if $0 == nil { decoded = nil } })) { item in
             ImportOptionsView(payload: item.payload) { mode in
@@ -126,8 +114,12 @@ struct BackupView: View {
         @Bindable var backup = backup
         return Section {
             Button {
-                pickerPurpose = .folder
-                showPicker = true
+                openingPicker = true
+                DocumentPicker.shared.pickFolder(onPresented: { openingPicker = false }) { url in
+                    guard let url else { return }
+                    backup.setFolder(url)
+                    if backup.encryptBackups && !backup.hasPassword { passwordSheet = true }
+                }
             } label: {
                 LabeledContent("Backup-Ordner", value: backup.folderName ?? "auswählen …")
             }
@@ -225,8 +217,11 @@ struct BackupView: View {
     private var importSection: some View {
         Section {
             Button("Backup oder Export importieren …") {
-                pickerPurpose = .importFile
-                showPicker = true
+                openingPicker = true
+                DocumentPicker.shared.pickFile(types: Self.importTypes, onPresented: { openingPicker = false }) { url in
+                    guard let url else { return }
+                    handleImportPick(.success(url))
+                }
             }
                 .disabled(model.isDemo)
         } header: {
