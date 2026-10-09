@@ -38,7 +38,7 @@ struct MoreView: View {
 
                 Section("Datensicherung") {
                     NavigationLink { BackupView() } label: {
-                        Label("Backup, Export & Import", systemImage: "externaldrive.badge.icloud")
+                        Label("Datensicherung (Backup, Export, Import)", systemImage: "externaldrive.badge.icloud")
                     }
                 }
 

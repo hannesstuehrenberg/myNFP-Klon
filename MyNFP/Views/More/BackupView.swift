@@ -7,8 +7,10 @@ struct BackupView: View {
     @Environment(AppModel.self) private var model
     @Environment(BackupService.self) private var backup
 
-    @State private var pickingFolder = false
-    @State private var pickingImport = false
+    /// Nur ein fileImporter pro Ansicht: SwiftUI beachtet bei mehreren nur einen.
+    enum PickerPurpose { case folder, importFile }
+    @State private var showPicker = false
+    @State private var pickerPurpose: PickerPurpose = .folder
     @State private var passwordSheet = false
     @State private var exportPassword = ""
     @State private var exportURL: URL?
@@ -41,14 +43,20 @@ struct BackupView: View {
             }
         }
         .navigationTitle("Datensicherung")
-        .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                backup.setFolder(url)
-                if backup.encryptBackups && !backup.hasPassword { passwordSheet = true }
+        .fileImporter(isPresented: $showPicker,
+                      allowedContentTypes: pickerPurpose == .folder ? [.folder] : Self.importTypes) { result in
+            switch pickerPurpose {
+            case .folder:
+                switch result {
+                case .success(let url):
+                    backup.setFolder(url)
+                    if backup.encryptBackups && !backup.hasPassword { passwordSheet = true }
+                case .failure(let e):
+                    message = "Ordner konnte nicht ausgewählt werden: \(e.localizedDescription)"
+                }
+            case .importFile:
+                handleImportPick(result)
             }
-        }
-        .fileImporter(isPresented: $pickingImport, allowedContentTypes: Self.importTypes) { result in
-            handleImportPick(result)
         }
         .sheet(isPresented: $passwordSheet) { BackupPasswordView() }
         .sheet(item: Binding(get: { decoded.map(IdentifiedPayload.init) }, set: { if $0 == nil { decoded = nil } })) { item in
@@ -118,7 +126,8 @@ struct BackupView: View {
         @Bindable var backup = backup
         return Section {
             Button {
-                pickingFolder = true
+                pickerPurpose = .folder
+                showPicker = true
             } label: {
                 LabeledContent("Backup-Ordner", value: backup.folderName ?? "auswählen …")
             }
@@ -162,7 +171,7 @@ struct BackupView: View {
         } header: {
             Text("Automatisches Backup (iCloud Drive)")
         } footer: {
-            Text("Wähle z. B. einen Ordner in iCloud Drive. Die App legt dort nach jeder Änderung „NFP-Backup-aktuell“ und täglich ein datiertes Backup ab. So sind deine Daten auch bei Verlust oder Defekt des iPhones geschützt. Notiere dir das Backup-Passwort – ohne es lassen sich verschlüsselte Backups nicht wiederherstellen.")
+            Text("Tippe auf „Backup-Ordner“, öffne in iCloud Drive den gewünschten Ordner (oder lege mit dem Ordner-Symbol einen neuen an) und tippe oben rechts auf „Öffnen“. Die App legt dort nach jeder Änderung „NFP-Backup-aktuell“ und täglich ein datiertes Backup ab. So sind deine Daten auch bei Verlust oder Defekt des iPhones geschützt. Notiere dir das Backup-Passwort – ohne es lassen sich verschlüsselte Backups nicht wiederherstellen.")
         }
     }
 
@@ -215,7 +224,10 @@ struct BackupView: View {
 
     private var importSection: some View {
         Section {
-            Button("Backup oder Export importieren …") { pickingImport = true }
+            Button("Backup oder Export importieren …") {
+                pickerPurpose = .importFile
+                showPicker = true
+            }
                 .disabled(model.isDemo)
         } header: {
             Text("Import / Wiederherstellung")
